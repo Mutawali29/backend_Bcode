@@ -22,13 +22,23 @@ const db = mysql.createPool({
     database: process.env.DB_NAME
 });
 
+console.log(process.env.DB_HOST);
+
 // Simple verification code storage (in production, use a database)
 const verificationCodes = new Map();
 
 // TEST ENDPOINT - to check if your server is running properly
-app.get("/api/test", (req, res) => {
-    res.json({ message: "Server is running!" });
-});
+// TEST ENDPOINT - to check if your server is running properly
+app.get("/api/test", async (req, res) => {
+    try {
+      // If you need to test a DB connection:
+      const [rows] = await db.query("SELECT 1 as test");
+      res.json({ message: "Server is running correctly!", dbConnected: true });
+    } catch (err) {
+      console.error("Error:", err);
+      res.status(500).json({ message: "Server running, but DB connection failed" });
+    }
+  });
 
 // SIMPLIFIED VERIFICATION ENDPOINT (for testing)
 app.post("/api/send-verification", async (req, res) => {
