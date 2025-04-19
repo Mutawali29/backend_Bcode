@@ -429,7 +429,7 @@ const PORT = process.env.PORT || 8000;
 //     console.log('- GET /api/dashboard [protected]');
 // });
 
-if (process.env.NODE_ENV !== 'production') {
+if (process.env.NODE_ENV == 'production') {
     app.listen(PORT, () => {
         console.log('Server berjalan di http://127.0.0.1:${PORT}');
         console.log('Available endpoints:');
