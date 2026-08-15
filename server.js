@@ -14,12 +14,17 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// Koneksi ke Database MySQL
+// Koneksi ke Database MySQL (Aiven)
 const db = mysql.createPool({
     host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
     user: process.env.DB_USER,
     password: process.env.DB_PASS,
-    database: process.env.DB_NAME
+    database: process.env.DB_NAME,
+    ssl: {
+        rejectUnauthorized: false
+    },
+    connectTimeout: 20000
 });
 
 console.log(process.env.DB_HOST);
@@ -28,10 +33,8 @@ console.log(process.env.DB_HOST);
 const verificationCodes = new Map();
 
 // TEST ENDPOINT - to check if your server is running properly
-// TEST ENDPOINT - to check if your server is running properly
 app.get("/api/test", async (req, res) => {
     try {
-      // If you need to test a DB connection:
       const [rows] = await db.query("SELECT 1 as test");
       res.json({ message: "Server is running correctly!", dbConnected: true });
     } catch (err) {
@@ -45,20 +48,17 @@ app.post("/api/send-verification", async (req, res) => {
     const { email, username } = req.body;
     
     try {
-        // Generate simple verification code (in real implementation, send this by email)
         const verificationCode = Math.floor(100000 + Math.random() * 900000).toString();
         
-        // Store verification code
         verificationCodes.set(email, {
             code: verificationCode,
-            expires: Date.now() + 10 * 60 * 1000 // 10 minutes
+            expires: Date.now() + 10 * 60 * 1000
         });
         
-        console.log('Verification code for ${email}: ${verificationCode}'); // For testing purposes
+        console.log('Verification code for ${email}: ${verificationCode}');
         
         res.json({ 
             message: "Kode verifikasi telah dikirim",
-            // Include code in response ONLY FOR TESTING
             code: verificationCode 
         });
         
@@ -73,7 +73,6 @@ app.post("/api/register", async (req, res) => {
     const { username, email, password, verificationCode } = req.body;
 
     try {
-        // Check verification code
         const storedCode = verificationCodes.get(email);
         if (!storedCode || storedCode.code !== verificationCode) {
             return res.status(400).json({ 
@@ -82,25 +81,20 @@ app.post("/api/register", async (req, res) => {
             });
         }
 
-        // Check if username exists
         const [rows] = await db.query("SELECT * FROM users WHERE username = ?", [username]);
         if (rows.length > 0) {
             return res.status(400).json({ message: "Username sudah digunakan!" });
         }
 
-        // Hash password
         const hashedPassword = await bcrypt.hash(password, 10);
         
-        // For simplicity, we'll use a default avatar URL
         const avatarUrl = 'https://ui-avatars.com/api/?name=${encodeURIComponent(username)}&background=random';
         
-        // Insert user (make sure your users table has avatar and is_verified columns)
         await db.query(
             "INSERT INTO users (username, email, password, avatar, is_verified) VALUES (?, ?, ?, ?, ?)", 
             [username, email, hashedPassword, avatarUrl, true]
         );
         
-        // Remove verification code
         verificationCodes.delete(email);
         
         res.json({ message: "Registrasi berhasil!" });
@@ -109,8 +103,6 @@ app.post("/api/register", async (req, res) => {
         res.status(500).json({ message: "Terjadi kesalahan!", error: err.message });
     }
 });
-
-// Replace your existing LOGIN endpoint with this updated version
 
 // LOGIN
 app.post("/api/login", async (req, res) => {
@@ -134,7 +126,7 @@ app.post("/api/login", async (req, res) => {
                 username: user.username,
                 email: user.email,
                 avatar: user.avatar || null,
-                role: user.role || 'user' // Include role in token
+                role: user.role || 'user'
             }, 
             process.env.SECRET_KEY, 
             { expiresIn: "1h" }
@@ -147,7 +139,7 @@ app.post("/api/login", async (req, res) => {
                 username: user.username,
                 email: user.email,
                 avatar: user.avatar || null,
-                role: user.role || 'user' // Include role in response
+                role: user.role || 'user'
             }
         });
     } catch (err) {
@@ -167,15 +159,10 @@ const verifyToken = (req, res, next) => {
     });
 };
 
-
-
-
-// Update user profile
 // Configure multer for avatar uploads
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
       const uploadDir = 'uploads/avatars';
-      // Create directory if it doesn't exist
       if (!fs.existsSync(uploadDir)) {
         fs.mkdirSync(uploadDir, { recursive: true });
       }
@@ -190,7 +177,7 @@ const storage = multer.diskStorage({
   
   const upload = multer({ 
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB limit
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
       if (file.mimetype.startsWith('image/')) {
         cb(null, true);
@@ -200,13 +187,11 @@ const storage = multer.diskStorage({
     }
   });
   
-  // Update your profile endpoint
   app.post("/api/update-profile", verifyToken, upload.single('avatar'), async (req, res) => {
     const { email, username } = req.body;
     const userId = req.user.id;
     
     try {
-      // Username check
       if (username !== req.user.username) {
         const [usernameCheck] = await db.query(
           "SELECT id FROM users WHERE username = ? AND id != ?", 
@@ -221,7 +206,6 @@ const storage = multer.diskStorage({
         }
       }
       
-      // Email check
       if (email !== req.user.email) {
         const [emailCheck] = await db.query(
           "SELECT id FROM users WHERE email = ? AND id != ?", 
@@ -236,21 +220,17 @@ const storage = multer.diskStorage({
         }
       }
       
-      // Process avatar if uploaded
       let avatarPath = req.user.avatar;
       if (req.file) {
-        // Get your server's base URL (or set it in .env)
         const serverBaseUrl = process.env.SERVER_URL || 'http://127.0.0.1:8000';
         avatarPath = `${serverBaseUrl}/${req.file.path.replace(/\\/g, '/')}`;
       }
       
-      // Update user in database with new avatar path
       await db.query(
         "UPDATE users SET username = ?, email = ?, avatar = ? WHERE id = ?",
         [username, email, avatarPath, userId]
       );
       
-      // Generate new token with updated information
       const token = jwt.sign(
         {
           id: userId,
@@ -284,12 +264,7 @@ const storage = multer.diskStorage({
     }
   });
   
-  // Add a route to serve avatar images
   app.use('/uploads', express.static('uploads'));
-
-
-
-
 
 // Get user's coin balance
 app.get("/api/coins", verifyToken, async (req, res) => {
@@ -336,7 +311,6 @@ app.post("/api/add-coins", verifyToken, async (req, res) => {
     try {
         await db.query("UPDATE users SET coins = coins + ? WHERE id = ?", [amount, req.user.id]);
         
-        // Get updated balance
         const [rows] = await db.query("SELECT coins FROM users WHERE id = ?", [req.user.id]);
         
         res.json({ message: "Koin berhasil ditambahkan", coins: rows[0].coins });
@@ -344,12 +318,6 @@ app.post("/api/add-coins", verifyToken, async (req, res) => {
         res.status(500).json({ message: "Terjadi kesalahan!", error: err.message });
     }
 });
-
-
-
-
-
-// Add these routes to your existing server.js file
 
 // MIDDLEWARE - Check if user is an admin
 const isAdmin = async (req, res, next) => {
@@ -383,19 +351,15 @@ app.post("/api/admin/add-coins", verifyToken, isAdmin, async (req, res) => {
     }
     
     try {
-        // Check if user exists
         const [userRows] = await db.query("SELECT * FROM users WHERE id = ?", [userId]);
         if (userRows.length === 0) {
             return res.status(404).json({ message: "Pengguna tidak ditemukan!" });
         }
         
-        // Add coins to user
         await db.query("UPDATE users SET coins = coins + ? WHERE id = ?", [amount, userId]);
         
-        // Get updated balance
         const [updatedRows] = await db.query("SELECT coins FROM users WHERE id = ?", [userId]);
         
-        // Log the transaction
         await db.query(
             "INSERT INTO coin_transactions (user_id, admin_id, amount, transaction_type, description) VALUES (?, ?, ?, ?, ?)",
             [userId, req.user.id, amount, "admin_add", `Koin ditambahkan oleh admin ${req.user.username}`]
@@ -410,8 +374,6 @@ app.post("/api/admin/add-coins", verifyToken, isAdmin, async (req, res) => {
     }
 });
 
-
-
 // ROUTE TERLINDUNGI - Dashboard
 app.get("/api/dashboard", verifyToken, (req, res) => {
     res.json({ message: 'Selamat datang, ${req.user.username}!' });
@@ -419,15 +381,6 @@ app.get("/api/dashboard", verifyToken, (req, res) => {
 
 // Jalankan Server
 const PORT = process.env.PORT || 8000;
-// app.listen(PORT, () => {
-//     console.log('Server berjalan di http://127.0.0.1:${PORT}');
-//     console.log('Available endpoints:');
-//     console.log('- GET /api/test');
-//     console.log('- POST /api/send-verification');
-//     console.log('- POST /api/register');
-//     console.log('- POST /api/login');
-//     console.log('- GET /api/dashboard [protected]');
-// });
 
 if (process.env.NODE_ENV == 'production') {
     app.listen(PORT, () => {
