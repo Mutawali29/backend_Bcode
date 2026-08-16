@@ -1,2 +1,5 @@
 node_mod*
 
+
+.env
+uploads/
